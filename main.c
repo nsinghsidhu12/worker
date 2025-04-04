@@ -428,7 +428,6 @@ void handle_arguments(char *program_name, char *server_ip, char *port_str, char 
                       }
 
                       int get_work(int socket_fd, struct server_message *message) {
-                          printf("GETTING NEW WORK\n");
                           uint8_t *buffer = NULL;
                           ssize_t bytes_recv = receive_message(socket_fd, &buffer);
 
