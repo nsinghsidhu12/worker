@@ -23,6 +23,7 @@ int checkpoint_count = 0;
 int found_flag = 0;
 int *thread_progress;
 unsigned char **thread_last_attempt;
+int *thread_last_attempt_size;
 static volatile sig_atomic_t exit_flag = 0;
 
 struct server_message {
@@ -100,9 +101,9 @@ void sigint_handler(int signum);
 void usage(char *program_name, int exit_code, char *message);
 
 int main(int argc, char *argv[]) {
-    char *server_ip;
-    char *port_str;
-    char *threads_str;
+    char *server_ip = {NULL};
+    char *port_str = {NULL};
+    char *threads_str = {NULL};
 
     in_port_t port;
     int threads_num;
@@ -121,6 +122,17 @@ int main(int argc, char *argv[]) {
 
     for (int i = 0; i < threads_num; i++) {
         thread_progress[i] = 0;
+    }
+
+    thread_last_attempt_size = (int *) malloc(threads_num * sizeof(int));
+
+    if (thread_last_attempt_size == NULL) {
+        perror("Memory allocation failed");
+        return EXIT_FAILURE;
+    }
+
+    for (int i = 0; i < threads_num; i++) {
+        thread_last_attempt_size[i] = 0;
     }
 
     thread_last_attempt = (unsigned char **) malloc(threads_num * sizeof(unsigned char *));
@@ -222,6 +234,7 @@ int main(int argc, char *argv[]) {
     pthread_mutex_destroy(&lock_checkpoint_count);
     pthread_mutex_destroy(&lock_found_flag);
 
+    free(thread_last_attempt_size);
     free(thread_last_attempt);
     free(thread_progress);
 
@@ -415,13 +428,13 @@ void handle_arguments(char *program_name, char *server_ip, char *port_str, char 
                           buffer[0] = type;
 
                           if (write(socket_fd, &total_size, sizeof(uint8_t)) < 0) {
-                              perror("Error in writing message");
+                              perror("Error in writing message, may have timed out");
                               close_socket(socket_fd);
                               exit(EXIT_FAILURE);
                           }
 
                           if (write(socket_fd, buffer, total_size) < 0) {
-                              perror("Error in writing message");
+                              perror("Error in writing message, may have timed out");
                               close_socket(socket_fd);
                               exit(EXIT_FAILURE);
                           }
@@ -656,6 +669,7 @@ void handle_arguments(char *program_name, char *server_ip, char *port_str, char 
 
                               memcpy(thread_last_attempt[data->id - 1], password_space, password_space_size);
                               thread_last_attempt[data->id - 1][password_space_size] = '\0';
+                              thread_last_attempt_size[data->id - 1] = password_space_size;
                               thread_progress[data->id - 1]++;
 
                               if (checkpoint_count == data->checkpoint) {
@@ -672,10 +686,12 @@ void handle_arguments(char *program_name, char *server_ip, char *port_str, char 
 
                                   int type = new_buffer[0];
                                   if (type == 2) {
+                                      printf("STOP: SERVER SIGNALS THAT PASSWORD HAS BEEN FOUND\n");
                                       found_flag = 1;
-                                      // send_disconnect(data->socket_fd);
                                       pthread_mutex_unlock(&lock_checkpoint_count);
                                       pthread_exit(NULL);
+                                  } else {
+                                      printf("CONTINUE: SERVER SIGNALS THAT PASSWORD HAS NOT BEEN FOUND\n");
                                   }
                               }
 
@@ -721,8 +737,11 @@ void handle_arguments(char *program_name, char *server_ip, char *port_str, char 
 
                               int type = new_buffer[0];
                               if (type == 2) {
+                                  printf("STOP: SERVER SIGNALS THAT PASSWORD HAS BEEN FOUND\n");
                                   found_flag = 1;
                                   pthread_exit(NULL);
+                              } else {
+                                  printf("CONTINUE: SERVER SIGNALS THAT PASSWORD HAS NOT BEEN FOUND\n");
                               }
                           }
 
@@ -757,19 +776,19 @@ void handle_arguments(char *program_name, char *server_ip, char *port_str, char 
                               buffer[offset++] = sizeof(int);
                               memcpy(&buffer[offset], &buckets[j], sizeof(int));
                               offset += sizeof(int);
-                              buffer[offset++] = strlen((char *) thread_last_attempt[j]);
-                              memcpy(&buffer[offset], thread_last_attempt[j], strlen((char *) thread_last_attempt[j]));
-                              offset += strlen((char *) thread_last_attempt[j]);
+                              buffer[offset++] = thread_last_attempt_size[j];
+                              memcpy(&buffer[offset], thread_last_attempt[j], thread_last_attempt_size[j]);
+                              offset += thread_last_attempt_size[j];
                           }
 
                           if (write(socket_fd, &offset, sizeof(uint8_t)) < 0) {
-                              perror("Error in writing update message");
+                              perror("Error in writing update message, may have timed out");
                               close_socket(socket_fd);
                               exit(EXIT_FAILURE);
                           }
 
                           if (write(socket_fd, buffer, offset) < 0) {
-                              perror("Error in writing update message");
+                              perror("Error in writing update message, may have timed out");
                               close_socket(socket_fd);
                               exit(EXIT_FAILURE);
                           }
@@ -839,7 +858,7 @@ void handle_arguments(char *program_name, char *server_ip, char *port_str, char 
                               offset += snprintf(buffer + offset, sizeof(buffer) - offset,
                                                  "Thread %d has completed %d subtasks, last guess: ", i + 1, thread_progress[i]);
 
-                              int length = strlen(thread_last_attempt[i]);
+                              int length = thread_last_attempt_size[i];
 
                               for (int j = 0; j < length; j++) {
                                   offset += snprintf(buffer + offset, sizeof(buffer) - offset, "%d ",
@@ -871,9 +890,12 @@ void handle_arguments(char *program_name, char *server_ip, char *port_str, char 
                               fprintf(stderr, "%s\n", message);
                           }
 
-                          fprintf(stderr, "Usage: %s <password_hash> <num_threads> <password_length>\n", program_name);
-                          fputs("Options:\n", stderr);
-                          fputs("  -h  Display this help message\n", stderr);
+                          fprintf(stderr, "Usage: %s [options]\n\n", program_name);
+                          fputs("Options\n", stderr);
+                          fputs("  --server <server> REQUIRED\n", stderr);
+                          fputs("  --port <port> REQUIRED\n", stderr);
+                          fputs("  --threads <threads> REQUIRED\n", stderr);
+                          fputs("  --help, -h  Display this help message\n", stderr);
 
                           exit(exit_code);
                       }
