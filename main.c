@@ -421,7 +421,7 @@ void handle_arguments(char *program_name, char *server_ip, char *port_str, char 
                       }
 
                       void ask_for_work(int socket_fd) {
-                          uint8_t buffer[UINT8_MAX + 1];
+                          uint8_t buffer[512];
                           uint8_t type = 1;
                           uint8_t total_size = sizeof(type);
 
@@ -761,7 +761,7 @@ void handle_arguments(char *program_name, char *server_ip, char *port_str, char 
                               buckets[i] += 1;
                           }
 
-                          uint8_t buffer[UINT8_MAX + 1];
+                          uint8_t buffer[512];
                           int offset = 0;
 
                           buffer[offset++] = 2;
@@ -795,7 +795,7 @@ void handle_arguments(char *program_name, char *server_ip, char *port_str, char 
                       }
 
                       void send_password(int socket_fd, int node_num, int password_space_size, unsigned char *password_space) {
-                          uint8_t buffer[UINT8_MAX + 1];
+                          uint8_t buffer[512];
                           int offset = 0;
 
                           buffer[offset++] = 3;
@@ -818,7 +818,7 @@ void handle_arguments(char *program_name, char *server_ip, char *port_str, char 
                       }
 
                       void send_disconnect(int socket_fd) {
-                          uint8_t buffer[UINT8_MAX + 1];
+                          uint8_t buffer[512];
                           uint8_t type = 5;
                           uint8_t total_size = sizeof(type);
                           printf("SENDING DISCONNECT MESSAGE\n");
